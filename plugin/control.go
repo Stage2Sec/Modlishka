@@ -127,7 +127,7 @@ function clearcookies(){
     <tbody>
     {{range .Victims}}
       <tr>
-        {{if ne .CredentialTimestamp nil}}
+        {{if .CredentialTimestamp}}
         <td class="text-center">{{.CredentialTimestamp.Format "1/2/06 15:04:05"}}</td>
         {{else}}
         <td class="text-center"></td>
