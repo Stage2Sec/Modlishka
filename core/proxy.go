@@ -195,9 +195,9 @@ func (httpResponse *HTTPResponse) PatchHeaders(p *ReverseProxy) {
 
 	// Patch HTTP Origin:
 	if p.Origin != "" {
-		if httpResponse.Header.Get("Access-Control-Allow-Origin") == "*" {
-			p.Origin = "*"
-		}
+		// if httpResponse.Header.Get("Access-Control-Allow-Origin") == "*" {
+		// 	p.Origin = "*"
+		// }
 
 		httpResponse.Header.Set("Access-Control-Allow-Origin", p.Origin)
 		httpResponse.Header.Set("Access-Control-Allow-Credentials", "true")
