@@ -706,7 +706,7 @@ func HelloHandlerDeleteVictim(w http.ResponseWriter, r *http.Request) {
 
 	users, ok := r.URL.Query()["user_id"]
 
-	if !ok || len(users[0]) < 1 {
+	if !ok {
 		log.Infof("Url Param 'users_id' is missing")
 		return
 	}
