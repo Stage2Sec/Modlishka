@@ -1,4 +1,4 @@
-FROM golang:alpine
+FROM golang:1.22-alpine
 
 MAINTAINER Krzysztof Bednarczyk <admin@bordeux.net>
 
